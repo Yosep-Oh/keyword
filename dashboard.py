@@ -3,7 +3,7 @@ import pandas as pd
 from supabase import create_client, Client
 from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
 
-# --- [1] 비밀번호 설정 (사장님만 아는 암호로 바꾸셔도 됩니다) ---
+# --- [1] 비밀번호 설정 ---
 MY_PASSWORD = "141242" 
 
 st.set_page_config(layout="wide", page_title="쿠팡 마켓 분석기")
@@ -14,7 +14,6 @@ if "logged_in" not in st.session_state:
 
 if not st.session_state.logged_in:
     st.title("🔐 보안 접속 (사장님 전용)")
-    # 비밀번호 입력 칸
     pwd_input = st.text_input("비밀번호를 입력하세요", type="password")
     if st.button("로그인"):
         if pwd_input == MY_PASSWORD:
@@ -22,9 +21,9 @@ if not st.session_state.logged_in:
             st.rerun()
         else:
             st.error("비밀번호가 틀렸습니다.")
-    st.stop() # 로그인 전에는 아래 코드를 실행 안 함
+    st.stop() 
 
-# --- [3] 데이터 로드 및 표시 (로그인 성공 시) ---
+# --- [3] 데이터 로드 및 표시 ---
 URL = st.secrets["SUPABASE_URL"]
 KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(URL, KEY)
@@ -75,5 +74,13 @@ try:
                 gb.configure_column("sub_keyword", headerName="연관 키워드", pinned='left')
                 gb.configure_column("keyword_vol", headerName="검색량(원문)")
                 gb.configure_column("검색량_숫자", headerName="검색량(정렬)", type=["numericColumn"], sort="desc", valueFormatter="x.toLocaleString()")
-                gb.configure
-
+                gb.configure_column("노출수", headerName="노출수", type=["numericColumn"], valueFormatter="x.toLocaleString()")
+                gb.configure_column("클릭수", headerName="클릭수", type=["numericColumn"], valueFormatter="x.toLocaleString()")
+                gb.configure_column("평균가", headerName="평균단가", valueFormatter="'₩' + x.toLocaleString()")
+                
+                grid_options = gb.build()
+                AgGrid(display_df, gridOptions=grid_options, theme='alpine', columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS)
+    else:
+        st.info("데이터가 없습니다.")
+except Exception as e:
+    st.error(f"오류 발생: {e}")
