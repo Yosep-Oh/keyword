@@ -23,7 +23,7 @@ if not st.session_state.logged_in:
             st.error("비밀번호가 틀렸습니다.")
     st.stop() 
 
-# --- [3] 데이터 로드 및 표시 ---
+# --- [3] 수파베이스 연결 및 데이터 로드 함수 ---
 URL = st.secrets["SUPABASE_URL"]
 KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(URL, KEY)
@@ -47,76 +47,52 @@ def load_all_data():
         all_rows.extend(res.data)
         if len(res.data) < step: break
         offset += step
-
-    df = pd.DataFrame(all_rows)
-    if not df.empty:
-        # [강력 조치] 모든 텍스트 데이터의 앞뒤 공백을 제거하고 문자로 통일
-        for col in ['main_keyword', 'product_name', 'sub_keyword']:
-            if col in df.columns:
-                df[col] = df[col].astype(str).str.strip()
-        
-        # 숫자 변환 (에러 방지용)
-        df['검색량_숫자'] = df['keyword_vol'].apply(clean_to_int)
-        df['노출수'] = df['keyword_exposure'].apply(clean_to_int)
-        df['클릭수'] = df['keyword_clicks'].apply(clean_to_int)
-        df['평균가'] = df['avg_price'].apply(clean_to_int)
-    return df
-
-# --- 출력 부분 (필터링 강화) ---
-if not df.empty:
-    main_list = sorted(df['main_keyword'].unique())
-    target = st.sidebar.selectbox("🔎 메인 검색어 선택", main_list)
     
-    # 메인 키워드로 1차 필터링
-    view_df = df[df['main_keyword'] == target]
-    st.title(f"📊 {target} 분석 리포트")
-    
-    products = sorted(view_df['product_name'].unique())
-    
-    for i, p_name in enumerate(products, 1):
-        # 해당 상품의 데이터만 정확히 추출
-        sub_data = view_df[view_df['product_name'] == p_name]
-        
-        with st.expander(f"{i}. {p_name} ({len(sub_data)}개 키워드)", expanded=(i<=3)):
-            if not sub_data.empty:
-                display_df = sub_data[['sub_keyword', 'keyword_vol', '검색량_숫자', '노출수', '클릭수', '평균가']]
-                # AgGrid 설정... (기존과 동일)
-                # ...
-                st.write(display_df) # AgGrid가 안 나오면 일반 표라도 띄워보라는 뜻입니다.
-            else:
-                st.error("이 상품은 DB에 데이터가 매칭되지 않습니다.")
+    df_loaded = pd.DataFrame(all_rows)
+    if not df_loaded.empty:
+        # 데이터 정제: 앞뒤 공백 제거 및 숫자 변환
+        df_loaded['product_name'] = df_loaded['product_name'].astype(str).str.strip()
+        df_loaded['main_keyword'] = df_loaded['main_keyword'].astype(str).str.strip()
+        df_loaded['검색량_숫자'] = df_loaded['keyword_vol'].apply(clean_to_int)
+        df_loaded['노출수'] = df_loaded['keyword_exposure'].apply(clean_to_int)
+        df_loaded['클릭수'] = df_loaded['keyword_clicks'].apply(clean_to_int)
+        df_loaded['평균가'] = df_loaded['avg_price'].apply(clean_to_int)
+    return df_loaded
 
+# --- [4] 메인 실행부 ---
 try:
+    # 여기서 df를 확실하게 정의합니다! (이게 없어서 아까 에러가 난 거예요)
     df = load_all_data()
+    
     if not df.empty:
-        st.sidebar.success("✅ 인증 완료")
         main_list = sorted(df['main_keyword'].unique())
         target = st.sidebar.selectbox("🔎 메인 검색어 선택", main_list)
         
         view_df = df[df['main_keyword'] == target]
         st.title(f"📊 {target} 분석 리포트")
         
-        products = view_df['product_name'].unique()
+        products = sorted(view_df['product_name'].unique())
+        
         for i, p_name in enumerate(products, 1):
-            with st.expander(f"{i}. {p_name}", expanded=True if i <= 3 else False):
-                sub_data = view_df[view_df['product_name'] == p_name].copy()
-                display_df = sub_data[['sub_keyword', 'keyword_vol', '검색량_숫자', '노출수', '클릭수', '평균가']]
-                
-                gb = GridOptionsBuilder.from_dataframe(display_df)
-                gb.configure_column("sub_keyword", headerName="연관 키워드", pinned='left')
-                gb.configure_column("keyword_vol", headerName="검색량(원문)")
-                gb.configure_column("검색량_숫자", headerName="검색량(정렬)", type=["numericColumn"], sort="desc", valueFormatter="x.toLocaleString()")
-                gb.configure_column("노출수", headerName="노출수", type=["numericColumn"], valueFormatter="x.toLocaleString()")
-                gb.configure_column("클릭수", headerName="클릭수", type=["numericColumn"], valueFormatter="x.toLocaleString()")
-                gb.configure_column("평균가", headerName="평균단가", valueFormatter="'₩' + x.toLocaleString()")
-                
-                grid_options = gb.build()
-                AgGrid(display_df, gridOptions=grid_options, theme='alpine', columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS)
+            sub_data = view_df[view_df['product_name'] == p_name].copy()
+            # 해당 상품의 키워드 개수를 제목에 표시
+            with st.expander(f"{i}. {p_name} ({len(sub_data)}개 키워드)", expanded=(i<=3)):
+                if not sub_data.empty:
+                    display_df = sub_data[['sub_keyword', 'keyword_vol', '검색량_숫자', '노출수', '클릭수', '평균가']]
+                    
+                    gb = GridOptionsBuilder.from_dataframe(display_df)
+                    gb.configure_column("sub_keyword", headerName="연관 키워드", pinned='left')
+                    gb.configure_column("검색량_숫자", headerName="검색량(정렬)", type=["numericColumn"], sort="desc", valueFormatter="x.toLocaleString()")
+                    gb.configure_column("노출수", headerName="노출수", valueFormatter="x.toLocaleString()")
+                    gb.configure_column("클릭수", headerName="클릭수", valueFormatter="x.toLocaleString()")
+                    gb.configure_column("평균가", headerName="평균단가", valueFormatter="'₩' + x.toLocaleString()")
+                    
+                    grid_options = gb.build()
+                    AgGrid(display_df, gridOptions=grid_options, theme='alpine', columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS)
+                else:
+                    st.warning("이 상품에는 상세 데이터가 없습니다.")
     else:
-        st.info("데이터가 없습니다.")
+        st.info("데이터베이스가 비어 있습니다. upload.py를 실행해 주세요.")
+
 except Exception as e:
     st.error(f"오류 발생: {e}")
-
-
-
-
