@@ -4,8 +4,8 @@ from supabase import create_client, Client
 from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
 
 # --- [설정] Streamlit Secrets에서 가져오기 ---
-URL = st.secrets["SUPABASE_URL"]
-KEY = st.secrets["SUPABASE_KEY"]
+URL = st.secrets["https://aywlsumqnuqhckpmftzr.supabase.co"]
+KEY = st.secrets["sb_publishable_Sgsd4QuO1oFWaS30BI4ojQ_QbueNP90"]
 supabase = create_client(URL, KEY)
 
 st.set_page_config(layout="wide", page_title="쿠팡 마켓 분석기")
@@ -81,3 +81,4 @@ try:
 
 except Exception as e:
     st.error(f"데이터 로드 오류: {e}")
+
