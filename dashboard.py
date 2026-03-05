@@ -4,7 +4,7 @@ from supabase import create_client, Client
 from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
 
 # --- [1] 비밀번호 설정 (사장님만 아는 암호로 바꾸셔도 됩니다) ---
-MY_PASSWORD = "yosep1234" 
+MY_PASSWORD = "141242" 
 
 st.set_page_config(layout="wide", page_title="쿠팡 마켓 분석기")
 
@@ -76,3 +76,4 @@ try:
                 gb.configure_column("keyword_vol", headerName="검색량(원문)")
                 gb.configure_column("검색량_숫자", headerName="검색량(정렬)", type=["numericColumn"], sort="desc", valueFormatter="x.toLocaleString()")
                 gb.configure
+
