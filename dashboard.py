@@ -39,27 +39,37 @@ def clean_to_int(val):
 @st.cache_data(ttl=300)
 def load_all_data():
     all_rows = []
-    limit = 1000  # 한 번에 가져올 양
-    offset = 0    # 시작점
+    step = 1000  # 한 번에 1000개씩 요청
+    offset = 0
+    
+    # 데이터 로딩 상태 표시 (사용자 배려)
+    msg = st.empty()
+    msg.info("데이터를 불러오는 중입니다... 잠시만 기다려 주세요.")
     
     while True:
-        # 수파베이스에서 1000개씩 끊어서 가져오기
-        res = supabase.table("market_analysis").select("*").range(offset, offset + limit - 1).execute()
+        # 수파베이스에서 데이터를 순차적으로 요청
+        res = supabase.table("market_analysis").select("*").range(offset, offset + step - 1).execute()
         
-        # 가져온 데이터를 리스트에 추가
-        all_rows.extend(res.data)
-        
-        # 만약 가져온 데이터가 1000개보다 적으면 더 이상 데이터가 없다는 뜻이므로 중단
-        if len(res.data) < limit:
+        # 가져온 데이터가 없으면 중단
+        if not res.data:
             break
             
-        # 다음 1000개를 가져오기 위해 위치 이동
-        offset += limit
+        all_rows.extend(res.data)
         
+        # 만약 가져온 데이터가 요청한 양보다 적으면 마지막 페이지라는 뜻
+        if len(res.data) < step:
+            break
+            
+        # 다음 위치로 이동
+        offset += step
+        # 진행 상황 살짝 보여주기
+        msg.info(f"데이터 불러오는 중... ({len(all_rows)}개 완료)")
+
     df = pd.DataFrame(all_rows)
+    msg.empty() # 로딩 메시지 삭제
     
-    # 숫자 정제 (콤마 제거, 정수화 등)
     if not df.empty:
+        # 숫자 정제 (콤마 제거, 정수화 등)
         df['검색량_숫자'] = df['keyword_vol'].apply(clean_to_int)
         df['노출수'] = df['keyword_exposure'].apply(clean_to_int)
         df['클릭수'] = df['keyword_clicks'].apply(clean_to_int)
@@ -97,4 +107,5 @@ try:
         st.info("데이터가 없습니다.")
 except Exception as e:
     st.error(f"오류 발생: {e}")
+
 
