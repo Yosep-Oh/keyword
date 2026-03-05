@@ -52,7 +52,7 @@ st.markdown("""
 
 # --- [2] 보안 접속 (비밀번호) ---
 # 기존 비밀번호 기능을 유지합니다.
-MY_PASSWORD = "yosep1234" 
+MY_PASSWORD = "141242" 
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -215,3 +215,4 @@ except Exception as e:
 # --- ---
 st.markdown("---")
 st.caption("© 2026 오셀러 마켓 리포트 v1.3.0 | 본 서비스는 사장님 전용입니다.")
+
