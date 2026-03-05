@@ -39,19 +39,32 @@ def clean_to_int(val):
 @st.cache_data(ttl=300)
 def load_all_data():
     all_rows = []
-    limit = 1000
-    offset = 0
+    limit = 1000  # 한 번에 가져올 양
+    offset = 0    # 시작점
+    
     while True:
+        # 수파베이스에서 1000개씩 끊어서 가져오기
         res = supabase.table("market_analysis").select("*").range(offset, offset + limit - 1).execute()
+        
+        # 가져온 데이터를 리스트에 추가
         all_rows.extend(res.data)
-        if len(res.data) < limit: break
+        
+        # 만약 가져온 데이터가 1000개보다 적으면 더 이상 데이터가 없다는 뜻이므로 중단
+        if len(res.data) < limit:
+            break
+            
+        # 다음 1000개를 가져오기 위해 위치 이동
         offset += limit
+        
     df = pd.DataFrame(all_rows)
+    
+    # 숫자 정제 (콤마 제거, 정수화 등)
     if not df.empty:
         df['검색량_숫자'] = df['keyword_vol'].apply(clean_to_int)
         df['노출수'] = df['keyword_exposure'].apply(clean_to_int)
         df['클릭수'] = df['keyword_clicks'].apply(clean_to_int)
         df['평균가'] = df['avg_price'].apply(clean_to_int)
+        
     return df
 
 try:
@@ -84,3 +97,4 @@ try:
         st.info("데이터가 없습니다.")
 except Exception as e:
     st.error(f"오류 발생: {e}")
+
