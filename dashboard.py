@@ -1,98 +1,70 @@
 import streamlit as st
 import pandas as pd
-from supabase import create_client, Client
 from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
+import re
 
-# --- [설정] 사장님 수파베이스 정보 ---
-URL = "https://aywlsumqnuqhckpmftzr.supabase.co"
-KEY = "sb_publishable_Sgsd4QuO1oFWaS30BI4ojQ_QbueNP90"
-supabase = create_client(URL, KEY)
+st.set_page_config(layout="wide", page_title="쿠팡 키워드 정밀 분석기")
 
-st.set_page_config(layout="wide", page_title="쿠팡 마켓 정밀 분석기")
+# --- 소수점 반올림 및 숫자 정리 함수 ---
+def clean_numeric_value(val):
+    try:
+        # 소수점이 포함된 숫자를 찾아 둘째 자리까지 반올림
+        if isinstance(val, float):
+            return round(val, 2)
+        if isinstance(val, str) and '.' in val:
+            return round(float(val), 2)
+        return val
+    except:
+        return val
 
-# 숫자 변환 함수
-def to_num(val):
-    if pd.isna(val) or val == "": return 0
-    s = str(val).replace('₩', '').replace(',', '').replace('%', '').strip()
-    if '만' in s:
-        try: return float(s.replace('만', '')) * 10000
-        except: return 0
-    try: return float(s)
-    except: return 0
-
-# 데이터 전량 불러오기 (1000개 제한 돌파)
-@st.cache_data(ttl=300)
-def load_all_data():
-    all_rows = []
-    limit = 1000
-    offset = 0
-    while True:
-        res = supabase.table("market_analysis").select("*").range(offset, offset + limit - 1).execute()
-        all_rows.extend(res.data)
-        if len(res.data) < limit: break
-        offset += limit
-    
-    df = pd.DataFrame(all_rows)
-    if not df.empty:
-        # 정렬용 숫자 컬럼 생성
-        df['검색량_수치'] = df['keyword_vol'].apply(to_num)
-        df['노출_수치'] = df['keyword_exposure'].apply(to_num)
-        df['클릭_수치'] = df['keyword_clicks'].apply(to_num)
-        df['평균가_수치'] = df['avg_price'].apply(to_num)
-    return df
-
-try:
-    df = load_all_data()
-    
-    if not df.empty:
-        # 1. 사이드바 검색어 필터
-        st.sidebar.header("🔍 검색 설정")
-        main_list = sorted(df['main_keyword'].unique())
-        target = st.sidebar.selectbox("메인 검색어 선택", main_list)
+# --- 데이터 불러오기 (data.txt 기반) ---
+def load_file_data():
+    try:
+        # data.txt 내용을 한 줄씩 읽어오기
+        with open('data.txt', 'r', encoding='utf-8') as f:
+            lines = f.readlines()
         
-        view_df = df[df['main_keyword'] == target]
+        # 텍스트 파일의 줄바꿈 제거 및 데이터 프레임화
+        data_list = [line.strip() for line in lines if line.strip()]
+        df = pd.DataFrame(data_list, columns=["분석 결과 및 키워드 데이터"])
         
-        # 2. 메인 화면 헤더
-        st.title(f"📊 “{target}” 분석 리포트")
-        st.info(f"선택된 시장 내 총 {len(view_df['product_name'].unique())}개의 경쟁 상품이 분석되었습니다.")
+        # 데이터 내의 모든 소수점 숫자를 찾아 반올림 처리 (정규식 활용)
+        def fix_text(text):
+            return re.sub(r'\d+\.\d+', lambda m: str(round(float(m.group()), 2)), text)
+        
+        df["분석 결과 및 키워드 데이터"] = df["분석 결과 "].apply(fix_text) if "분석 결과 " in df else df["분석 결과 및 키워드 데이터"].apply(fix_text)
+        
+        return df
+    except Exception as e:
+        st.error(f"파일을 읽는 중 오류 발생: {e}")
+        return pd.DataFrame()
 
-        # 3. 상품별 상세 리스트
-        products = view_df['product_name'].unique()
-        for i, p_name in enumerate(products, 1):
-            with st.expander(f"{i}. {p_name}", expanded=True if i <= 3 else False):
-                sub_data = view_df[view_df['product_name'] == p_name].copy()
-                
-                # 표 제목 한글화 및 설정
-                gb = GridOptionsBuilder.from_dataframe(sub_data[[
-                    'sub_keyword', 'keyword_vol', 'keyword_exposure', 'keyword_clicks', 'avg_price',
-                    '검색량_수치', '노출_수치', '클릭_수치', '평균가_수치'
-                ]])
-                
-                # 한글 이름 매칭
-                gb.configure_column("sub_keyword", headerName="연관 키워드", pinned='left', width=180)
-                gb.configure_column("keyword_vol", headerName="검색량(원문)")
-                gb.configure_column("검색량_수치", headerName="검색량(정렬)", type=["numericColumn", "numberColumnFilter"], sort="desc")
-                gb.configure_column("노출_수치", headerName="노출수", type=["numericColumn"])
-                gb.configure_column("클릭_수치", headerName="클릭수", type=["numericColumn"])
-                gb.configure_column("평균가_수치", headerName="평균단가", valueFormatter="'₩' + x.toLocaleString()")
-                
-                # 원본 영어 컬럼은 숨기기 (보기 지저분하니까요)
-                gb.configure_columns(['keyword_exposure', 'keyword_clicks', 'avg_price'], hide=True)
-                
-                grid_options = gb.build()
-                
-                AgGrid(
-                    sub_data, 
-                    gridOptions=grid_options, 
-                    height=350, 
-                    theme='alpine', # 더 깔끔한 테마
-                    columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS
-                )
-    else:
-        st.warning("데이터베이스가 비어있습니다.")
+# --- 메인 UI 구성 ---
+st.title("📊 쿠팡 마켓 분석 대시보드 (파일 연동)")
 
-except Exception as e:
-    st.error(f"데이터 로드 중 오류 발생: {e}")
+df = load_file_data()
 
-input_val = st.sidebar.button("💾 데이터 새로고침")
-if input_val: st.cache_data.clear()
+if not df.empty:
+    st.info(f"현재 `data.txt`로부터 {len(df)}개의 분석 줄을 읽어왔습니다.")
+
+    # AgGrid 설정 (기존 사장님 스타일 유지)
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_default_column(resizable=True, filterable=True, sortable=True)
+    gb.configure_column("분석 결과 및 키워드 데이터", headerName="📋 분석 내용 및 키워드 리포트", width=800)
+    
+    grid_options = gb.build()
+
+    # 표 출력
+    AgGrid(
+        df,
+        gridOptions=grid_options,
+        height=500,
+        theme='alpine',
+        columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS
+    )
+else:
+    st.warning("`data.txt` 파일이 비어있거나 찾을 수 없습니다.")
+
+# 새로고침 버튼
+if st.sidebar.button("💾 화면 새로고침"):
+    st.rerun()
