@@ -1,98 +1,108 @@
 import streamlit as st
-import pandas as pd
 from supabase import create_client, Client
-from st_aggrid import AgGrid, GridOptionsBuilder, ColumnsAutoSizeMode
+import pandas as pd
 
-# --- [설정] 사장님 수파베이스 정보 ---
-URL = "https://aywlsumqnuqhckpmftzr.supabase.co"
-KEY = "sb_publishable_Sgsd4QuO1oFWaS30BI4ojQ_QbueNP90"
-supabase = create_client(URL, KEY)
-
-st.set_page_config(layout="wide", page_title="쿠팡 마켓 정밀 분석기")
-
-# 숫자 변환 함수
-def to_num(val):
-    if pd.isna(val) or val == "": return 0
-    s = str(val).replace('₩', '').replace(',', '').replace('%', '').strip()
-    if '만' in s:
-        try: return float(s.replace('만', '')) * 10000
-        except: return 0
-    try: return float(s)
-    except: return 0
-
-# 데이터 전량 불러오기 (1000개 제한 돌파)
-@st.cache_data(ttl=300)
-def load_all_data():
-    all_rows = []
-    limit = 1000
-    offset = 0
-    while True:
-        res = supabase.table("market_analysis").select("*").range(offset, offset + limit - 1).execute()
-        all_rows.extend(res.data)
-        if len(res.data) < limit: break
-        offset += limit
-    
-    df = pd.DataFrame(all_rows)
-    if not df.empty:
-        # 정렬용 숫자 컬럼 생성
-        df['검색량_수치'] = df['keyword_vol'].apply(to_num)
-        df['노출_수치'] = df['keyword_exposure'].apply(to_num)
-        df['클릭_수치'] = df['keyword_clicks'].apply(to_num)
-        df['평균가_수치'] = df['avg_price'].apply(to_num)
-    return df
-
+# 1. 보안 설정 (Secrets에서 값 불러오기)
+# Streamlit Cloud 설정창의 Advanced Settings > Secrets에 URL과 KEY를 넣어야 작동합니다.
 try:
-    df = load_all_data()
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+except KeyError:
+    st.error("❌ Streamlit Cloud의 Secrets 설정이 누락되었습니다. URL과 KEY를 등록해주세요.")
+    st.stop()
+
+# 2. Supabase 접속
+@st.cache_resource
+def init_connection():
+    return create_client(url, key)
+
+supabase = init_connection()
+
+# --- UI 설정 ---
+st.set_page_config(page_title="쿠팡 키워드 대시보드", layout="wide")
+
+# 깔끔한 제목
+st.markdown("<h1 style='text-align: center; color: #0074e9;'>🚀 쿠팡 키워드 정밀 분석 시스템</h1>", unsafe_allow_html=True)
+st.write("---")
+
+# 3. 데이터 로드 함수 (속도를 위해 캐싱 적용)
+@st.cache_data(ttl=600) # 10분마다 갱신
+def get_data():
+    try:
+        # DB의 모든 데이터를 가져옴
+        res = supabase.table("coupang_keywords").select("*").execute()
+        return pd.DataFrame(res.data)
+    except Exception as e:
+        st.error(f"데이터를 불러오는 중 오류가 발생했습니다: {e}")
+        return pd.DataFrame()
+
+df = get_data()
+
+if df.empty:
+    st.warning("⚠️ 데이터베이스에 표시할 데이터가 없습니다. 업로드가 완료되었는지 확인해주세요.")
+else:
+    # --- [상단] 핵심 요약 지표 ---
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("📦 전체 키워드 수", f"{len(df):,}개")
+    with col2:
+        st.metric("🔥 최고 검색량", f"{df['search_count'].max():,}건")
+    with col3:
+        st.metric("👀 최고 노출수", f"{df['impression_count'].max():,}건")
+    with col4:
+        # 클릭률(CTR) 계산
+        total_imp = df['impression_count'].sum()
+        total_click = df['click_count'].sum()
+        avg_ctr = (total_click / total_imp * 100) if total_imp > 0 else 0
+        st.metric("🎯 평균 클릭률", f"{avg_ctr:.2f}%")
+
+    st.write("---")
+
+    # --- [중간] 필터 및 검색 ---
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        search_query = st.text_input("🔍 상품명 또는 연관키워드 검색 (예: 무드등, 크리스마스)", "")
+    with c2:
+        main_kw_filter = st.selectbox("📌 메인키워드 필터", ["전체"] + list(df['main_keyword'].unique()))
+
+    # 데이터 필터링 로직
+    filtered_df = df.copy()
+    if search_query:
+        filtered_df = filtered_df[
+            filtered_df['product_name'].str.contains(search_query, na=False) | 
+            filtered_df['sub_keyword'].str.contains(search_query, na=False)
+        ]
+    if main_kw_filter != "전체":
+        filtered_df = filtered_df[filtered_df['main_keyword'] == main_kw_filter]
+
+    # --- [하단] 데이터 리스트 (정렬 기능 내장) ---
+    st.subheader("📋 키워드 분석 리스트")
+    st.info("💡 각 열 제목을 클릭하면 오름차순/내림차순으로 정렬됩니다.")
+
+    # 사용자가 보기 편하게 컬럼 순서 및 이름 변경
+    display_df = filtered_df[['main_keyword', 'category', 'product_name', 'sub_keyword', 'search_count', 'impression_count', 'click_count']]
     
-    if not df.empty:
-        # 1. 사이드바 검색어 필터
-        st.sidebar.header("🔍 검색 설정")
-        main_list = sorted(df['main_keyword'].unique())
-        target = st.sidebar.selectbox("메인 검색어 선택", main_list)
-        
-        view_df = df[df['main_keyword'] == target]
-        
-        # 2. 메인 화면 헤더
-        st.title(f"📊 “{target}” 분석 리포트")
-        st.info(f"선택된 시장 내 총 {len(view_df['product_name'].unique())}개의 경쟁 상품이 분석되었습니다.")
+    st.dataframe(
+        display_df,
+        column_config={
+            "main_keyword": "메인키워드",
+            "category": "카테고리",
+            "product_name": "상품명(i+2)",
+            "sub_keyword": "연관키워드",
+            "search_count": st.column_config.NumberColumn("검색량", format="%d"),
+            "impression_count": st.column_config.NumberColumn("노출수", format="%d"),
+            "click_count": st.column_config.NumberColumn("클릭수", format="%d"),
+        },
+        use_container_width=True,
+        hide_index=True
+    )
 
-        # 3. 상품별 상세 리스트
-        products = view_df['product_name'].unique()
-        for i, p_name in enumerate(products, 1):
-            with st.expander(f"{i}. {p_name}", expanded=True if i <= 3 else False):
-                sub_data = view_df[view_df['product_name'] == p_name].copy()
-                
-                # 표 제목 한글화 및 설정
-                gb = GridOptionsBuilder.from_dataframe(sub_data[[
-                    'sub_keyword', 'keyword_vol', 'keyword_exposure', 'keyword_clicks', 'avg_price',
-                    '검색량_수치', '노출_수치', '클릭_수치', '평균가_수치'
-                ]])
-                
-                # 한글 이름 매칭
-                gb.configure_column("sub_keyword", headerName="연관 키워드", pinned='left', width=180)
-                gb.configure_column("keyword_vol", headerName="검색량(원문)")
-                gb.configure_column("검색량_수치", headerName="검색량(정렬)", type=["numericColumn", "numberColumnFilter"], sort="desc")
-                gb.configure_column("노출_수치", headerName="노출수", type=["numericColumn"])
-                gb.configure_column("클릭_수치", headerName="클릭수", type=["numericColumn"])
-                gb.configure_column("평균가_수치", headerName="평균단가", valueFormatter="'₩' + x.toLocaleString()")
-                
-                # 원본 영어 컬럼은 숨기기 (보기 지저분하니까요)
-                gb.configure_columns(['keyword_exposure', 'keyword_clicks', 'avg_price'], hide=True)
-                
-                grid_options = gb.build()
-                
-                AgGrid(
-                    sub_data, 
-                    gridOptions=grid_options, 
-                    height=350, 
-                    theme='alpine', # 더 깔끔한 테마
-                    columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS
-                )
-    else:
-        st.warning("데이터베이스가 비어있습니다.")
+    # --- [최하단] 시각화 (선택사항) ---
+    if st.checkbox("📈 클릭률(CTR) 그래프 보기"):
+        st.subheader("효율 상위 20개 키워드 (CTR %)")
+        filtered_df['ctr'] = (filtered_df['click_count'] / filtered_df['impression_count'] * 100).fillna(0)
+        top_20 = filtered_df.sort_values(by='ctr', ascending=False).head(20)
+        st.bar_chart(data=top_20, x='sub_keyword', y='ctr')
 
-except Exception as e:
-    st.error(f"데이터 로드 중 오류 발생: {e}")
-
-input_val = st.sidebar.button("💾 데이터 새로고침")
-if input_val: st.cache_data.clear()
+st.write("---")
+st.caption("Admin Dashboard for Coupang Keyword Analysis | Powered by Supabase & Streamlit")
