@@ -7,8 +7,8 @@ st.set_page_config(page_title="쿠팡 키워드 정밀 분석", layout="wide")
 
 # 1. 보안 및 접속 설정
 try:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
+    url = st.secrets["https://aywlsumqnuqhckpmftzr.supabase.co"]
+    key = st.secrets["sb_publishable_Sgsd4QuO1oFWaS30BI4ojQ_QbueNP90"]
 except KeyError:
     st.error("❌ secrets.toml 설정 확인 필요")
     st.stop()
